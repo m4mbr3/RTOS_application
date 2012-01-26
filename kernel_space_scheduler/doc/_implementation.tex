@@ -1,0 +1,171 @@
+\section{Exemplary test applications}
+\label{Implementation}
+	\label{Implementation:Userside}
+To obtain performance evaluations of the scheduler extension concept and its Linux kernel implementation, we implemented exemplary applications that employ the programming model described in Section~\ref{Concept:APM}. They are embedded into a framework which consists of a general management part and an abstract base class that aims to enforce the use of cooperative multitasking and which should be extended by problem specific threads.
+
+The following subsection will detail the framework, which can be used to rapidly generate new test applications. Subsections \ref{Implementation:Userside:MD5} and \ref{Implementation:Userside:PF} introduce approaches to solve two exemplary problems using hardware tasks and the framework.
+
+\subsection{Framework}
+\label{Implementation:Userside:Framework}
+The goal of the framework presented in this section is to provide a set of C++ classes that ease the use of the new system calls while making an effort to force deriving classes to employ the cooperative multitasking scheme.
+
+The main purpose of the application framework is to provide feasible methods for the execution of hardware tasks which may be able to operate on more than one \cu{} type, and that should employ checkpointing to enable cooperative multitasking. It therefore contains no problem specific code, but an abstract base class \codesnippet{Worker} that already makes use of the new system calls in a reasonable fashion. Once finished with a deriving subclass that overwrites all pure virtual methods of class \codesnippet{Worker}, and provides a set of algorithm implementations for different \cus{}, the result is a complete application which makes full use of accelerated hardware tasks.
+
+When started, such an application creates one or more instances of the available \codesnippet{Worker} class implementations, waits for their completion, and joins and destroys them afterwards.
+
+The abstract base class already includes a main loop, which employs the program flow introduced in Figure~\ref{fig:FlowDiaHWT}. Upon creation, it generates the meta information from the current problem parameters by calling the pure virtual function \functionname{workerMetaInfo}. The affinities calculated therein also have to reflect the algorithm implementations which the subclass provides, by assigning an affinity of zero to every unsupported \cu{} type. Using the generated data, the scheduler is able to find the most suited device for this task in the \functionname{allocation} routine, which the application calls afterwards. To use the returned device, it has to be initialized with the latest checkpoint or the initial parameters and allocated working memory. Then the binary has to be started as often as necessary for the deriving class and allowed by the \functionname{re-request} system calls. Afterwards, the resulting checkpoint has to be downloaded again and all memory freed on the device, prior to calling the \functionname{free} system call of the kernel extension. Thus, the \codesnippet{Worker} class expects three functions in the subclass, to handle the assigned unit type. An \functionname{initialization} routine, a \functionname{main} execution and a \functionname{free} function. The application determines these functions by passing the assigned unit type to the pure virtual function \functionname{getImplementationFor}, which has to return three function pointers.
+
+The \functionname{initialization} function will be called after the successful return of the \functionname{allocation} system call. It should allocate memory on the assigned device and copy the latest checkpoint into it. The communication with the device should be performed using its native libraries. If possible, this function should also copy the code to the unit.
+
+The purpose of the \functionname{main} execution function is to copy the code and parameters to the device if necessary, to start the computation and to wait for it to finish. The execution unit on the device then calculates the next checkpoint from the last one. With the checkpoint ready in device memory, the \codesnippet{Worker} class calls the \functionname{re-request} routine of the scheduler extension, to determine whether or not it has to leave the \cu{}. It loops the call to the \functionname{main} execution routine as long as the re-requests succeed and there is still work to do.
+
+If a re-request fails, or if the application is done, it calls the \functionname{free} routine of the subclass, which copies the checkpoint from device memory to main memory and then releases all memory regions currently held by the application on the device. To inform the scheduler that it has finished this computation it then calls the \functionname{free} function of the kernel extension.
+
+Depending on the state of the problem solving part of the subclass, the \codesnippet{Worker} object either exits at this point, or loops to the \functionname{allocation} call, if there is still work left to be done.
+
+This concludes the description of the framework. A subclass has to provide the following items to complete the framework to a working application:
+\begin{enumerate}
+	\item An implementation for the pure virtual function \functionname{workerMetaInfo}, which calculates the contents of the \codesnippet{meta\_info} structure from the problem parameters and available algorithm implementations
+	\item A triplet of functions per supported device type that perform the following actions:
+	\begin{itemize}
+		\item Initialization of the \cu{}
+		\item Execution of the code on the unit
+		\item Freeing of the resources allocated by the two above functions
+	\end{itemize}
+	\item An implementation for the pure virtual function \functionname{getImplementationFor}, which returns the triplet of functions that implement the algorithm for the given unit type
+	\item A unit specific implementation of the algorithm, which then is executed on the device by the execution routine
+\end{enumerate}
+
+For the implemented exemplary implementations, the possible unit types were CPU or NVIDIA CUDA GPU. For the CPU case, the \functionname{initialization} and \functionname{free} functions of the subclasses are dummy functions, as in this case the checkpoints are already in the main memory and hence do not have to be allocated or copied.
+
+\subsection{MD5 Cracking}
+	\label{Implementation:Userside:MD5}
+MD5 is the name of a hashing function developed by Ron Rivest in 1992 \cite{rivest1992md5}. Its use in secure applications is discouraged nowadays, as several flaws of the algorithm have been discovered which result in security weaknesses. Researchers found ways to generate MD5 collisions (e.g. \cite{stevens2009cpc}), i.e. situations in which two different inputs yield the same MD5 hash. The exemplary application presented in this section implements a brute force attack, the most naive approach to reverse the hash function. We chose this approach because it uses only the well-known MD5 algorithm and is computationally intensive with long running times, which makes it a good candidate to test and evaluate a scheduler.
+	
+The implemented attack is based on the knowledge of the input string's length and the alphabet, i.e. the list of possible characters used in the string. Given the MD5 hash and length of a target string the application checks the MD5 hashes of all possible combinations of characters from the alphabet that are of the same length. If one of that combinations yields the same MD5 hash as the input string then that combination is assumed to be the target string. As the inspection of one possible solution is completely independent from that of the others, and as the algorithm applies the same instructions to a large set of data, this application benefits greatly from data-parallel SIMD computation.
+
+In more mathematical terms, the problem is defined as follows:\\ Given an alphabet $\Sigma$ as set of characters, the input $h$ to the main algorithm is the MD5 hash of a string $t$ of length $n$ over the alphabet $\Sigma$. Repetitions of characters in $t$ are allowed. In other words: $h = \text{md5}(t)$ with $t \in \Sigma^{n}$. The search space of the algorithm consists of all combinations of characters from $\Sigma$ and hence is limited ($|\Sigma^{n}| = |\Sigma|^{n} < \infty$) and can be enumerated and thoroughly searched in finite time. The cracking routine makes use of such an enumeration as Listing~\ref{lst:MD5Cracking} shows. The enumeration itself is irrelevant for the description of the algorithm, but it is crucial that all provided implementations use the same enumeration of the search space. This allows the application to use the number of the last inspected word as checkpoint, because it contains all the information that is needed to describe the complete running state of the program: ``Every word up to the $i$th has been checked and none of them has been the target word''. That none of the words below $i$ can be the target word is implicated by the existence of the checkpoint. If the target word would have already been found, the program would have exited and hence there would be no checkpoint.
+
+\begin{lstlisting} [float=ht,caption={MD5 cracking using a brute force attack}, label={lst:MD5Cracking}, language=C++, morekeywords={for,let}]
+md5_crack($h$, $\Sigma$, $n$){
+	// enumerate all possible words
+	for $i$ from $1$ to $|\Sigma|^{n}$ do
+		// generate the $i$th word
+		let $w$ be the $i$th word in $\Sigma^{n}$
+		// compare its MD5 hash to the target
+		if md5($w$) == $h$
+			return $w$   // return successfully if they match
+	done
+}
+\end{lstlisting} 
+
+To make use of all aspects of the managed acceleration provided by the scheduler extension, the algorithm has to be implemented for different \cus{}. Our exemplary implementation includes hardware tasks that can use either CPUs or NVIDIA GPUs for computation. The concept of the core algorithm is realized in both versions, though only the CPU version follows the strictly sequential flow presented in Listing~\ref{lst:MD5Cracking}. Theoretically the algorithm reaches a new possible checkpoint at every iteration of the loop. Invoking the \functionname{re-request} system call that often would introduce a large scheduling overhead though, and thus the application calls it only every few hundred iterations. The CUDA implementation exploits the independence of the hash calculation for the different character combinations. It inspects a batch of words in parallel in each iteration, starting from the last checkpoint. The size of the batches is a tunable parameter in the implementation. On our test system a batch size of one million hashes at once\footnote{The complete batch is not necessarily executed in parallel, but the CUDA GPU has a scheduler of its own that strives to run as many CUDA threads in parallel as possible. This refers to the scheduler on the accelerator, not to the first-come-first-serve scheduler implemented in the driver.} still produced good results.
+
+Since the scheduler has the choice to schedule the application on a GPU or on a CPU it needs additional information to learn which unit it shall prefer. Therefore the hardware task of the program has to include meta information about itself in the call to the scheduler's \functionname{allocation} routine. In our implementation of the kernel extension concept this information contains the size of a checkpoint, the size of the memory that has to be allocated on the device for the calculations, how much the task gains from data-parallel execution and an affinity map towards the possible \cu{} types. Since most of this data varies at runtime, the kernel extension only expects estimates that provide enough information to make a reasonable decision.
+
+For MD5 cracking the routine to estimate the meta information works as shown in Listing~\ref{lst:MD5metainfo}. It sets \codesnippet{memory\_to\_copy} to zero, as a checkpoint for this application consists of just one number, and hence its size is negligible if measured in megabyte. The estimated \codesnippet{parallel\_efficiency\_gain} of data-parallel execution depends to a degree on the overall size of the search space $\Sigma^{n}$.
+
+\begin{lstlisting} [float=ht,caption={[Meta information for MD5 Cracking]Procedure that generates the meta information for MD5 cracking}, label={lst:MD5metainfo}, language=C++, morekeywords={uint64}]
+workerMetaInfo(struct meta_info *mi)
+{
+	mi->memory_to_copy := 0 // Checkpoint size in MB
+	
+	// guess efficiency gain from number of possible character combinations
+	switch ($|\Sigma^{n}|$)
+	case $|\Sigma^{n}|$ <= 10000
+		mi->parallel_efficiency_gain := 0
+	case $|\Sigma^{n}|$ <= 100000
+		mi->parallel_efficiency_gain := 1
+	case $|\Sigma^{n}|$ <= 200000
+		mi->parallel_efficiency_gain := 2
+	case $|\Sigma^{n}|$ <= 500000
+		mi->parallel_efficiency_gain := 3
+	case $|\Sigma^{n}|$ <= 1000000
+		mi->parallel_efficiency_gain := 4
+	case else
+		mi->parallel_efficiency_gain := 5
+	
+	// more affine to GPU
+	mi->type_affinity[CU_TYPE_CUDA] := 2
+	mi->type_affinity[CU_TYPE_CPU] := 1
+}
+\end{lstlisting} 
+
+If the search space contains only a few thousand possibilities, then the overhead of starting a computation on a device capable of running the algorithm data-parallel outweighs the benefits. Hence, the data-parallelism is estimated to have little or negative impact for small problem sizes, while providing faster speeds for search spaces that span hundreds of thousands of candidates. As this exemplary application provides implementations for two different architectures its affinity map contains two entries greater than zero. One for the unit type CPU and one for the type CUDA GPU. We set the affinity towards GPUs twice as high as that towards CPUs, since the application is generally better fitted to run on a GPU than on a CPU, because it has to copy only a small amount of code and data to the device and because of its parallelizable nature.
+
+\subsection{Prime factorization}
+	\label{Implementation:Userside:PF}
+
+Prime factorization denotes the problem of factorizing a number into its prime factors. This factorization is unique except for the order of the factors. This example application calculates the factorization by trying all possible factors in successive order. While this may seem to be a naive approach, it can indeed be optimized in a few ways that result in a fast algorithm.
+
+Listing~\ref{lst:PFCPU} shows most of the optimizations that we applied. The algorithm returns the factorization as two arrays. F contains the prime factors and M their respective multiplicity. To decrease the runtime it only searches for factors up to the square root of the target number. If the algorithm finds a factor, it reduces the target number by that factor as often as possible, thereby determining the multiplicity of it.
+
+\begin{lstlisting} [float=ht,caption={Prime factorization algorithm}, label={lst:PFCPU}, language=C++, morekeywords={end,then,done}]
+pf($a$){
+	// initialize the return arrays
+	F := $\emptyset$
+	M := $\emptyset$
+	$c$ := $a$ // start with the provided number
+	// loop from first prime up to square root of current number
+	for $i$ from $2$ to $\sqrt{c}$ do
+		if $c$ == 1 then break  // factorization complete
+		if $c$ mod $i$ == 0
+			F := F $\cup$ $i$ // add factor to F
+			M[$i$] := 0 // determine the multiplicity of it
+			while $c$ mod $i$ == 0
+				$c$ /= $i$ // update the target number accordingly
+				M[$i$] += 1
+			end while
+		end if
+	done
+	
+	// if the number is not $1$ the factorization is not complete, but as no additional factor has been found the remainder must be prime itself
+	if $c$ > 1
+		F := F $\cup$ $c$
+		M[$c$] := 1
+	end if
+	
+	return F and M
+}
+\end{lstlisting} 
+
+To avoid the wrongly detection of multiples of previously found factors, the algorithm continues its search with the reduced target number. Thus the found factors are necessarily prime, if it checks all of them in order, starting with $2$. Thereby the algorithm can omit the time consuming prime tests for the found factors. As the new target is smaller than the initial number, its square root is smaller too, hence further reducing the runtime. This process can be aborted if either the reduced target number reaches one, which means that all factors have been found, or if the square root of the target has been reached. If no factor of the target has been found up to the square root, the target itself is prime.
+
+The CUDA implementation differs from the CPU version, in that it tries to parallelize as much of the algorithm as possible. In contrast to MD5 cracking, data-parallel execution is not that simple in this case since the algorithm includes sequential dependencies. The sequential approach can omit the test to verify if a factor is prime, because it checks the candidates in successive order and eliminates all possibilities to reduce the target by any multiples of previously found factors. Hence any found factor is prime, i.e. has no prime factors itself, because otherwise the smaller factors would have been found earlier. This is not easily transferable to the data-parallel case, where a prime number and its multiples can possibly be evaluated in parallel. Thus, the CUDA version has to verify explicitly if the currently inspected number is prime itself in order to get a valid prime factorization. This does apply only however, if the current batch of tested numbers can contain a prime number and multiples of it. Therefore the implementation checks if the smallest possible multiple of the smallest number of the batch, which is two times that smallest element, falls inside the batch or not as a further optimization. If that smallest multiple lies inside the batch, the algorithm has to verify if found factors are prime. If it is outside however, no prime number will be tested in parallel to one of its multiples in this batch, and hence the check can be skipped for that entire batch.
+
+The prime factorization algorithm needs more information than only one number to encode its current running state, as shown in Listing~\ref{lst:PFcheckpoint}. To resume the execution at a specific iteration of the main loop, the algorithm needs several data items.
+
+\begin{lstlisting} [float=ht,caption={Prime factorization checkpoint}, label={lst:PFcheckpoint}, language=C++, morekeywords={uint64,bool,uint}]
+struct prime_factorization_checkpoint {
+	// current state
+	uint64 remainder;
+	uint64 currentDivisor;
+	uint64 currentSquareRoot;
+	
+	// current solution
+	uint64 numberToTest;
+	uint nextIndex; // index into F and M
+	uint64 F[FACTORS_TO_FIND];
+	uint64 M[FACTORS_TO_FIND];
+}
+\end{lstlisting} 
+
+For the current execution state these are:
+\begin{samepage}
+\begin{itemize}
+	\item The current remainder $c$ of the initial number $a$,
+	\item the largest divisor $i$ which has been applied to it so far and
+	\item the square root of the current remainder, to avoid its repeated evaluation.
+\end{itemize}
+\end{samepage}
+
+To find the correct prime factorization, the algorithm has to know the solutions that were found in previous iterations. Thus the following items have to be included in the checkpoint:
+\begin{samepage}
+\begin{itemize}
+	\item The number $a$ whose prime factorization is currently being calculated,
+	\item the return array F which contains all factors that were found up to now,
+	\item the return array M which contains the corresponding exponents and
+	\item an index into both fields, pointing to the next free entry in them.
+\end{itemize}
+\end{samepage}
+

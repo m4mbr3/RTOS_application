@@ -1,0 +1,236 @@
+\section{Scheduler installation}
+\label{ExtendKernel}
+
+To use the scheduler extension, you will need a Linux with a patched kernel. This guide assumes that you are able to obtain the sources for your current kernel, and to compile them to a working kernel.
+
+\subsection{Making a Linux kernel with the extension}
+\begin{enumerate}
+	\item Get the sources for your current or favorite kernel
+	\item Extract the kernel sources to a temporary folder
+	\item Apply the extension source code\\
+		\begin{itemize}
+			\item Copy the new files into the temporary folder you created in step 1
+				\begin{itemize}
+					\item src/linux-source-2.6.32/include/linux/sched\_hwaccel.h
+					\item src/linux-source-2.6.32/kernel/sched\_fair\_hw.c
+					\item src/linux-source-2.6.32/kernel/sched\_hwaccel.c
+				\end{itemize}
+			\item Apply the modifications for each modified file:
+				\begin{itemize}
+					\item src/linux-source-2.6.32/include/linux/sched.h
+					\item src/linux-source-2.6.32/kernel/sched.c
+				\end{itemize}
+				A simple way to do this is by comparing them (diff) and transfering the following list of changes (line numbers from extension files):
+				\begin{itemize}
+					\item src/linux-source-2.6.32/include/linux/sched.h
+						\begin{description}
+							\item[97] Include linux/sched\_hwaccel.h
+							\item[1197-1243] Move definition of *cfs\_rq into a block guarded by CONFIG\_SCHED\_HWACCEL and add extension specific items to definition of struct sched\_entity
+							\item[1267+] Introduce hwse
+						\end{description}
+					\item src/linux-source-2.6.32/kernel/sched.c
+						\begin{description}
+							\item[410] Change guard to include CONFIG\_SCHED\_HWACCEL
+							\item[449+] Introduce locking members to struct cfs\_rq
+							\item[1828+] Include the new code file sched\_fair\_hw.c and sched\_hwaccel.c
+							\item[1987+] Call \functionname{set\_task\_rq\_hw} in \functionname{\_\_set\_task\_cpu}
+							\item[2562+] Reset new data structures in \functionname{\_\_sched\_fork}
+							\item[9340+] Initialize semaphore in \functionname{init\_cfs\_rq}
+							\item[9503+] Initialize new data structures in \functionname{sched\_init}
+						\end{description}
+				\end{itemize}
+			\item Add the new system calls to the system call tables. Find the following files and add the information about the system calls to them. The numbers of the defines are an example - for a real kernel you will have to take the last number which is already defined for a system call in that file, and then start with that number plus one for the new defines.
+				\begin{enumerate}
+					\item src/linux-source-2.6.32/arch/x86/include/asm/unistd\_32.h
+					\begin{verbatim}
+#define __NR_computing_unit_alloc         337
+#define __NR_computing_unit_rerequest     338
+#define __NR_computing_unit_free          339
+#define __NR_computing_unit_add           340
+#define __NR_computing_unit_del           341
+#define __NR_computing_unit_iterate       342
+#define __NR_computing_unit_details       343
+#define __NR_computing_unit_set           344
+					\end{verbatim}
+					\item src/linux-source-2.6.32/arch/x86/include/asm/unistd\_64.h
+					\begin{verbatim}
+#define __NR_computing_unit_alloc         299
+__SYSCALL(__NR_computing_unit_alloc, sys_computing_unit_alloc)
+#define __NR_computing_unit_rerequest     300
+__SYSCALL(__NR_computing_unit_rerequest, sys_computing_unit_rerequest)
+#define __NR_computing_unit_free          301
+__SYSCALL(__NR_computing_unit_free, sys_computing_unit_free)
+#define __NR_computing_unit_add           302
+__SYSCALL(__NR_computing_unit_add, sys_computing_unit_add)
+#define __NR_computing_unit_del           303
+__SYSCALL(__NR_computing_unit_del, sys_computing_unit_del)
+#define __NR_computing_unit_iterate       304
+__SYSCALL(__NR_computing_unit_iterate, sys_computing_unit_iterate)
+#define __NR_computing_unit_details       305
+__SYSCALL(__NR_computing_unit_details, sys_computing_unit_details)
+#define __NR_computing_unit_set           306
+__SYSCALL(__NR_computing_unit_set, sys_computing_unit_set)
+					\end{verbatim}
+					\item src/linux-source-2.6.32/arch/x86/kernel/syscall\_table\_32.S
+					\begin{verbatim}
+	.long sys_computing_unit_alloc
+	.long sys_computing_unit_rerequest
+	.long sys_computing_unit_free
+	.long sys_computing_unit_add
+	.long sys_computing_unit_del
+	.long sys_computing_unit_iterate
+	.long sys_computing_unit_details
+	.long sys_computing_unit_set
+					\end{verbatim}
+				\end{enumerate}
+		\end{itemize}
+	
+	
+	\item Prepare the parameters of the extension
+		\begin{enumerate}
+			\item Edit the file ``include/linux/sched\_hwaccel.h'' in the patched kernel sources. In it there are several parameters you can tune:\\
+				 \cdefine{CU\_HW\_QUEUE\_LIMIT}, \\
+				 \cdefine{CU\_HW\_LOAD\_BALANCER\_FILLS\_QUEUE} and \\
+				 \cdefine{CU\_HW\_KEEP\_QUEUE\_FULL}\\
+				implement the runqueue limit (maximum number of tasks in an accelerator runqueue)
+				of the extension. The first one sets the limit,
+				the second one controls if the load balancer should refill the queue once
+				it runs and the third one controls if the load balancer is invoked when
+				the accelerator is idle or when the queue is not full. These
+				parameters are linked to migration modes:
+				\begin{itemize}
+					\item migration without queue limit:
+					\begin{verbatim}
+						 #define CU_HW_QUEUE_LIMIT 99999
+						 //#define CU_HW_LOAD_BALANCER_FILLS_QUEUE
+						 //#define CU_HW_KEEP_QUEUE_FULL
+					\end{verbatim}
+					\item migration with queue limit 5 and fixed set of tasks:
+					\begin{verbatim}
+						 #define CU_HW_QUEUE_LIMIT 5
+						 #define CU_HW_LOAD_BALANCER_FILLS_QUEUE
+						 #define CU_HW_KEEP_QUEUE_FULL
+					\end{verbatim}
+					\item migration with queue limit and variable set of tasks:
+					\begin{verbatim}
+						 #define CU_HW_QUEUE_LIMIT 5
+						 #define CU_HW_LOAD_BALANCER_FILLS_QUEUE
+						 #define CU_HW_KEEP_QUEUE_FULL
+					\end{verbatim}
+				\end{itemize}
+				 For the last mode you will also need to change line number 1477 in the file
+				 ``sched\_hwaccel.c'' from
+					\begin{verbatim}
+						if (is_cpu_cui(cui) || 
+							cui->cfs_rq.nr_running < CU_HW_QUEUE_LIMIT - 1)
+					\end{verbatim}
+				 to
+					\begin{verbatim}
+						if (is_cpu_cui(cui) || 
+							cui->cfs_rq.nr_running < CU_HW_QUEUE_LIMIT)
+					\end{verbatim}
+			\item In lines 46ff. of the file ``kernel/sched\_hwaccel.c'' you will find the basic granularity setting
+				per type:\\ \cdefine{static u64 type\_granularities\_sec[CU\_NUMOF\_TYPES]}\\
+				Alternatively
+				you can \\ \cdefine{\#define APPLICATION\_CONTROLLED\_GRANULARITY}\\ in the previously
+				discussed header file and thereby extend the signature of the allocation
+				system call.
+		\end{enumerate}
+	
+	
+	
+	\item Compile the kernel\\
+		Refer to the documentation of your distribution for details
+	\item Install the kernel
+\end{enumerate}
+
+ You can now use the scheduler extension.
+
+\subsection{Test the extension}
+\begin{enumerate}
+\item  Install the kernel on a CUDA enabled computer system
+\item  Install CUDA runtime\\
+  Obtain the correct
+  ones for your system from \url{http://developer.nvidia.com/object/gpucomputing.html}
+\item  Make the Usercontrol library\\
+  Copy the directory ``src/userfrontend/'' to your harddisk and enter its
+  subdirectory ``library''. Make the library. Point it to the kernel headers of
+  the extended kernel if necessary.
+\item  Make the Usercontrol frontend\\
+  Enter the previously copied folder ``userfrontend'' and therein the folder
+  ``frontend''. Make the frontend. Point it to the previously built library and
+  the kernel headers of the extended kernel if necessary.
+\item  Adjust the test application\\
+  Copy the directory ``src/testapplication/'' to your harddisk and enter it.
+  Edit the file ``testapp.h''. Here you can define which test application you
+  wish to build:
+	\begin{verbatim}
+    /* types of ghosts... first defined one is taken */
+    #define MODE_ONLY_MD5
+    #define MODE_ONLY_PF
+    #define MODE_MD5_AND_PF
+    #define MODE_1_MD5_AND_2_PF
+	\end{verbatim}
+  Choose one of the modes (only MD5 cracking workers, only prime factorization
+  workers, both workers in equal amount, or both workers with twice as many
+  PF workers than MD5 workers) with these preprocessor macros.
+  In ``num\_of\_ghosts.h'' you can define the number of concurrent ``test
+  applications'' you want to have, and in ``kernel\_granularity.h'' you can define
+  the granularity that will be used if you enabled the application controlled
+  granularity in the kernel.
+\item  Adjust the MD5 application (if wanted)\\
+  To adjust the MD5 problem edit the file ``worker\_md5.h'':
+	\begin{description}
+		\item[\cdefine{ORIGINAL\_WORD\_LENGTH}] is the word length of the target word and 
+		\item[\cdefine{MD5POOL}]  is the alphabet.
+		\item[\cdefine{WORDS\_PER\_BATCH}] is the checkpoint distance of the CPU implementation and
+		\item[\cdefine{WORDS\_PER\_BATCH\_GPU}] the distance of the GPU version.
+	\end{description}
+	The target string generation
+  can be found in ``worker\_md5.cpp'', lines 597ff.
+  The meta information generation is also in this file, lines 58ff.
+\item  Adjust the PF application (if wanted)\\
+  To adjust the PF problem edit the file ``worker\_prime.h'':
+	\begin{description}
+		\item[\cdefine{BASE\_NUMBER}] is the starting number of the number generation for the PF threads.
+		\item[\cdefine{CANDIDATES\_PER\_BATCH}] is the checkpoint distance of the CPU implementation and 
+		\item[\cdefine{CANDIDATES\_PER\_BATCH\_GPU}] the distance of the GPU version.
+	\end{description}
+	The number generation
+  can be found in ``worker\_prime.cpp'', lines 443ff.
+  The meta information generation is also in this file, lines 22ff.
+\item  Make the test application
+\item  Boot into the extended kernel
+\item  Add the CUDA card to the scheduler\\
+  Call \consolecmd{userspacecontrol/frontend/accelerator-ctl -c0} to add the first device
+  or \consolecmd{userspacecontrol/frontend/accelerator-ctl -c} to get a list of addable
+  CUDA devices. Call \consolecmd{userspacecontrol/frontend/accelerator-ctl -l} to see which
+  resources the scheduler knows and uses.
+\item  Run the test application\\
+  Enter its directory and call \consolecmd{./testapplication}
+  You can repeatedly call \\ \consolecmd{userspacecontrol/frontend/accelerator-ctl -l} while
+  the application runs, to see how the tasks are being distributed throughout
+  the system.
+\end{enumerate}
+
+\subsection{List of code files}
+Kernel files that have been added:
+\begin{itemize}
+   \item src/linux-source-2.6.32/include/linux/sched\_hwaccel.h
+   \item src/linux-source-2.6.32/kernel/sched\_fair\_hw.c
+   \item src/linux-source-2.6.32/kernel/sched\_hwaccel.c
+\end{itemize}
+Kernel files that have been modified:
+\begin{itemize}
+  \item System call tables
+	\begin{itemize}
+		 \item src/linux-source-2.6.32/arch/x86/include/asm/unistd\_32.h
+		 \item src/linux-source-2.6.32/arch/x86/include/asm/unistd\_64.h
+		 \item src/linux-source-2.6.32/arch/x86/kernel/syscall\_table\_32.S
+	\end{itemize}
+	\item Embedding in the original scheduler
+	\begin{itemize}
+		 \item src/linux-source-2.6.32/include/linux/sched.h
+		 \item src/linux-source-2.6.32/kernel/sched.c
+	\end{itemize}
+\end{itemize}

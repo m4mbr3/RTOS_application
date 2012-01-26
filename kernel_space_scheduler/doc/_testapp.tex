@@ -1,0 +1,11 @@
+\chapter{Testapp manual}
+\label{Testapp}
+
+Testapp is an application framework designed to simplify the employment of the programming model needed to make use of the time-shared kernel extension. If you are unfamiliar with this application model, see section \ref{Concept:APM} for details on it.
+
+Testapp should enable programmers to meet all requirements to work with the scheduler extension, without reimplementing the global program flow for every application. It therefore implements the program flow depicted in figure \ref{fig:FlowDiaHWT} in an easily extensible manner, thereby enforcing the use of cooperative multitasking. Section \ref{Implementation:Userside} describes the framework and two exemplary implementations, which make use of it.
+
+Section \ref{Porting} then describes the steps necessary to port an existing application to this APM.
+
+How a vanilla Linux kernel can be extended with the new accelerator scheduler is explained in section \ref{ExtendKernel}.
+

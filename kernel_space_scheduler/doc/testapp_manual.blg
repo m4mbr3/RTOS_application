@@ -1,0 +1,54 @@
+This is BibTeX, Version 0.99d (TeX Live 2011)
+Capacity: max_strings=35307, hash_size=35307, hash_prime=30011
+The top-level auxiliary file: testapp_manual.aux
+The style file: alpha.bst
+Database file #1: testapp_manual.bib
+I was expecting a `,' or a `}'---line 61 of file testapp_manual.bib
+ : 
+ : keywords={Mixed hardware-software implementations;Xilinx Virtex-H-Pro FPGA;embedded Linux;execution flow;reconfigurable hardware tasks;reconfigurable task manager;run-time management;software design;Linux;software engineering;system-on-chip;},
+(Error may have been on previous line)
+I'm skipping whatever remains of this entry
+Warning--entry type for "rivest1992md5" isn't style-file defined
+--line 683 of file testapp_manual.bib
+You've used 2 entries,
+            2543 wiz_defined-function locations,
+            572 strings with 4882 characters,
+and the built_in function-call counts, 958 in all, are:
+= -- 91
+> -- 53
+< -- 2
++ -- 20
+- -- 19
+* -- 68
+:= -- 160
+add.period$ -- 6
+call.type$ -- 2
+change.case$ -- 16
+chr.to.int$ -- 2
+cite$ -- 2
+duplicate$ -- 35
+empty$ -- 65
+format.name$ -- 21
+if$ -- 197
+int.to.chr$ -- 1
+int.to.str$ -- 0
+missing$ -- 1
+newline$ -- 13
+num.names$ -- 6
+pop$ -- 20
+preamble$ -- 1
+purify$ -- 18
+quote$ -- 0
+skip$ -- 32
+stack$ -- 0
+substring$ -- 39
+swap$ -- 9
+text.length$ -- 2
+text.prefix$ -- 1
+top$ -- 0
+type$ -- 16
+warning$ -- 0
+while$ -- 8
+width$ -- 3
+write$ -- 29
+(There was 1 error message)
