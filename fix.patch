@@ -1,0 +1,304 @@
+diff --git a/kernel_space_scheduler/src/testapplication/Makefile b/kernel_space_scheduler/src/testapplication/Makefile
+index a5b3107..caf7f3a 100644
+--- a/kernel_space_scheduler/src/testapplication/Makefile
++++ b/kernel_space_scheduler/src/testapplication/Makefile
+@@ -6,16 +6,16 @@ USEDRVAPI         := 1
+ .DEFAULT : $(BIN)
+ .PHONY : clean
+ 
+-CXX               := g++ 
++CXX               := g++
+ NVCC              := nvcc 
+ RM                := rm -f
+ CP                := cp -f
+ 
+ CUDA_INSTALL_PATH := /usr/local/cuda
+-CUDA_SDK_PATH     := /opt/NVIDIA_GPU_Computing_SDK
++CUDA_SDK_PATH     := /usr/local/cuda/sdk
+ LIBS              := -L$(CUDA_INSTALL_PATH)/lib -L$(CUDA_INSTALL_PATH)/lib64 -L$(CUDA_SDK_PATH)/lib
+ INCLUDES          += -I. -I$(CUDA_INSTALL_PATH)/include -I$(CUDA_SDK_PATH)/common/inc  -I$(CUDA_SDK_PATH)/C/common/inc 
+-INCLUDES          += -I/usr/src/linux-headers-2.6.32-24-hwsched/include -I/usr/src/linux-headers-2.6.32-24/include -I/usr/include
++INCLUDES          += -I/usr/src/linux/include -I/usr/include 
+ 
+ LDFLAGS           := -lpthread -lrt -lm
+ # static linking, we will statically link against CUDA and CUDART
+@@ -24,9 +24,9 @@ ifeq ($(USEDRVAPI),1)
+ else
+  LDFLAGS += -lcudart 
+ endif
+-CXXFLAGS          := $(INCLUDES) -pthread -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check -O0
+-NVCCFLAGS         := $(INCLUDES) -DUNIX -g --compiler-options -fno-strict-aliasing -m64
+-SMVERSIONFLAGS    := -arch sm_20
++CXXFLAGS          := $(INCLUDES) -pthread -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check -O0 -D CONFIG_SCHED_HET
++NVCCFLAGS         := $(INCLUDES) -DUNIX -g --compiler-options -fno-strict-aliasing -m32
++SMVERSIONFLAGS    := -arch sm_12
+ 
+ CPP_SOURCES       := $(wildcard *.cpp)
+ CU_SOURCES        := $(wildcard *.cu)
+diff --git a/kernel_space_scheduler/src/testapplication/sched_hwaccel.h b/kernel_space_scheduler/src/testapplication/sched_hwaccel.h
+new file mode 100644
+index 0000000..185fe88
+--- /dev/null
++++ b/kernel_space_scheduler/src/testapplication/sched_hwaccel.h
+@@ -0,0 +1,119 @@
++#ifndef _LINUX_SCHED_HWACCEL_H
++#define _LINUX_SCHED_HWACCEL_H
++
++#ifdef CONFIG_SCHED_HET
++
++/*
++ * Note: These types are used as array indizes and therefore have to be
++ * in ascending order and without gap
++ */
++#define CU_NUMOF_TYPES 3
++
++#define CU_TYPE_CPU  0
++#define CU_TYPE_CUDA 1
++#define CU_TYPE_FPGA 2
++#define CU_TYPE_UNDEFINED 9999
++
++#ifdef CONFIG_SCHED_HET_FIXED_TASK_SET
++#define CU_HW_QUEUE_LIMIT ((unsigned int) CONFIG_SCHED_HET_QUEUE_LIMIT + 1)
++#else
++#define CU_HW_QUEUE_LIMIT ((unsigned int) CONFIG_SCHED_HET_QUEUE_LIMIT)
++#endif
++
++#if CONFIG_SCHED_HET_QUEUE_LIMIT > 0
++#define CU_HW_LOAD_BALANCER_FILLS_QUEUE
++#define CU_HW_KEEP_QUEUE_FULL
++#endif
++
++//#define FEAT_HWACCEL_DISABLE_CHECKPOINTING
++
++#define SINGLE_IMPLEMENTATION_BONUS 40
++
++#define CU_INVALID_HANDLE ULONG_MAX
++
++#define cu_type_to_const_char(type) ((type) == CU_TYPE_CPU ?  "  cpu" : \
++                                    ((type) == CU_TYPE_CUDA ? " cuda" : \
++                                    ((type) == CU_TYPE_FPGA ? " fpga" : \
++                                                              "inval")))
++
++#define CU_AFFINITY_WITH_PAREFFGAIN 1
++
++/* Short summary of all cu-information needed by the application
++ */
++struct computing_unit_shortinfo {
++	unsigned long handle;
++	unsigned int type;
++	unsigned long api_device_number;
++	int count;
++	int waiting;
++	int online;
++};
++/* struct for meta information about a thread
++ * the scheduler picks an appropriate cu based on this info
++ * NOTE: In its current state this is very basic
++ * It is therefore subject to change
++ */
++struct meta_info {
++	/*
++	 * In MB. The amount of memory which has to be transferred to and from the device.
++	 * This will not be considered for the CPU implementations as they can access
++	 * the main memory directly.
++	 */
++	unsigned int memory_to_copy;
++	
++	/*
++	 * In MB. The amount of memory the algorithm typically allocates on the device.
++	 */
++	unsigned int memory_consumption;
++	
++	/*
++	 * On a scale from 0 (not parallelisable or small problem scale; no speedup expected from parallelisation)
++	 * to 5 (completely parallelisable large scale problem)
++	 */
++	int parallel_efficiency_gain;
++	
++	/*
++	 * Array holding the affinity of the application towards the cu types.
++	 * Affinity 0 means that no implementation is available for that type,
++	 * otherwise higher values correspond to higher affinity.
++	 * The programmer can use this to encode information about which type
++	 * of cu has the best implementation for this problem, or only which
++	 * implementations are given and which are not.
++	 * Do not include parallelisability here as this is being considered by
++	 * the scheduler itself.
++	 * Valid range: [0-15]
++	 */
++	unsigned int type_affinity[CU_NUMOF_TYPES];
++};
++
++/* 
++ * Hardware API fetched details of a specific computing unit
++ */
++struct hardware_properties {
++	int concurrent_kernels;
++	unsigned long bandwidth; /* measured as MB per second */
++	size_t memory; /* measured in bytes */
++	
++	unsigned int gflops_per_sec; /* Gigaflops per second */
++};
++
++#ifdef __KERNEL__
++#ifdef CONFIG_SCHED_HET_APPL_GRANULARITY
++asmlinkage long sys_computing_unit_alloc(struct meta_info *mi, struct computing_unit_shortinfo *cu, int base_granularity);
++#else
++asmlinkage long sys_computing_unit_alloc(struct meta_info *mi, struct computing_unit_shortinfo *cu);
++#endif
++asmlinkage long sys_computing_unit_rerequest(void);
++asmlinkage long sys_computing_unit_free(void);
++
++asmlinkage long sys_computing_unit_add(struct computing_unit_shortinfo *cu, struct hardware_properties *hp);
++asmlinkage long sys_computing_unit_del(unsigned long id);
++asmlinkage long sys_computing_unit_iterate(unsigned long *iterator, struct computing_unit_shortinfo *cu, unsigned long *nr_devices);
++asmlinkage long sys_computing_unit_details(unsigned long id, struct computing_unit_shortinfo *cu, struct hardware_properties *hp);
++asmlinkage long sys_computing_unit_set(unsigned long id, struct computing_unit_shortinfo *cu, struct hardware_properties *hp);
++#endif /* __KERNEL__ */
++
++#endif /* CONFIG_SCHED_HET */
++
++
++#endif
+diff --git a/kernel_space_scheduler/src/testapplication/testapp.cpp b/kernel_space_scheduler/src/testapplication/testapp.cpp
+index a8e4017..e238889 100644
+--- a/kernel_space_scheduler/src/testapplication/testapp.cpp
++++ b/kernel_space_scheduler/src/testapplication/testapp.cpp
+@@ -13,7 +13,7 @@
+ /* Includes */
+ #include "testapp.h"
+ #include <stdio.h>
+-
++#include <unistd.h>
+ /* Helper macro to walk all unfinished workers (ghosts) */
+ #define foreach_unfinished_ghost(itghost) \
+   for (int itghost = 0; itghost < NUM_GHOSTS; itghost++) \
+@@ -134,7 +134,7 @@ void Testapp::performWork() {
+         workIsDone[i] = true;
+       }
+     }
+-    sleep(GRANULARITY_SECONDS);
++    ::sleep(GRANULARITY_SECONDS);
+ 
+     // If testapp shuts down while there are still workers running, relay the
+     // shutdown to them and wait, kill them after a few seconds if nothing
+@@ -279,7 +279,7 @@ void * Testapp::announcer(void * parm) {
+ 
+     // sleep if no signal is pending
+     if (!Testapp::caughtSIGNAL){
+-      if (sleepLeft > 0) sleep(sleepLeft);
++      if (sleepLeft > 0) ::sleep(sleepLeft);
+     }
+     Testapp::caughtSIGNAL = false;
+ 
+diff --git a/kernel_space_scheduler/src/testapplication/timeTestapp.sh b/kernel_space_scheduler/src/testapplication/timeTestapp.sh
+old mode 100644
+new mode 100755
+diff --git a/kernel_space_scheduler/src/testapplication/worker.h b/kernel_space_scheduler/src/testapplication/worker.h
+index f170cc0..495d74d 100644
+--- a/kernel_space_scheduler/src/testapplication/worker.h
++++ b/kernel_space_scheduler/src/testapplication/worker.h
+@@ -21,7 +21,7 @@
+ #include "testapp.h"
+ 
+ /* include kernel structs */
+-#include <linux/sched_hwaccel.h>
++#include "sched_hwaccel.h"
+ 
+ //! prepend a 0 to ids < 10 to create two-digit strings
+ #define formatted_stream_id(id) (id < 10 ? "0" : "") << id 
+@@ -29,9 +29,9 @@
+ class Testapp;
+ class Worker;
+ 
+-typedef void* (initFunc)(computing_unit_shortinfo*);                     //!< Function signature for accelerator initialization functions (allocate and copy resources)
+-typedef void (mainFunc)(computing_unit_shortinfo*, void*, signed long*); //!< Function signature for computation functions (from one checkpoint to the next)
+-typedef void (freeFunc)(computing_unit_shortinfo*, void*);               //!< Function signature for accelerator release functions (release all allocated resources)
++typedef void* (initFunc)(struct computing_unit_shortinfo*);                     //!< Function signature for accelerator initialization functions (allocate and copy resources)
++typedef void (mainFunc)(struct computing_unit_shortinfo*, void*, signed long*); //!< Function signature for computation functions (from one checkpoint to the next)
++typedef void (freeFunc)(struct computing_unit_shortinfo*, void*);               //!< Function signature for accelerator release functions (release all allocated resources)
+ 
+ /**
+  * \brief A struct to pass a triplet of function pointers from a subclass to the
+diff --git a/kernel_space_scheduler/src/testapplication/worker_md5.h b/kernel_space_scheduler/src/testapplication/worker_md5.h
+index 81deb99..2589996 100644
+--- a/kernel_space_scheduler/src/testapplication/worker_md5.h
++++ b/kernel_space_scheduler/src/testapplication/worker_md5.h
+@@ -79,7 +79,7 @@
+  * this worker are apart on a GPU.
+  */
+ //#define WORDS_PER_BATCH_GPU 1000000000
+-#define WORDS_PER_BATCH_GPU 100000000
++#define WORDS_PER_BATCH_GPU 1000000
+ 
+ //! Abbreviation for the number of characters in the currently used alphabet
+ #define NUM_OF_CHARS (sizeof(MD5POOL) - 1)
+@@ -151,7 +151,7 @@ public:
+   md5_resources_t resources;
+ 
+   //! Implementation multiplexer for the class Worker_md5 - implements the virtual Worker::getImplementationFor
+-  void* getImplementationFor(unsigned int type, accelerated_functions_t *af);
++  void getImplementationFor(unsigned int type, accelerated_functions_t *af);
+ 
+   //! Meta information generator for the class Worker_md5 - implements the virtual Worker::workerMetaInfo
+ 	void workerMetaInfo(struct meta_info *mi);
+diff --git a/kernel_space_scheduler/src/testapplication/worker_prime.h b/kernel_space_scheduler/src/testapplication/worker_prime.h
+index 742c0e7..eec59fe 100644
+--- a/kernel_space_scheduler/src/testapplication/worker_prime.h
++++ b/kernel_space_scheduler/src/testapplication/worker_prime.h
+@@ -5,8 +5,8 @@
+ 
+ #define FACTORS_TO_FIND 1000
+ #define CANDIDATES_PER_BATCH 1000
+-//#define CANDIDATES_PER_BATCH_GPU 100000
+-#define CANDIDATES_PER_BATCH_GPU 1000
++#define CANDIDATES_PER_BATCH_GPU 10000000
++//#define CANDIDATES_PER_BATCH_GPU 1000
+ 
+ // 99488307847707803 is prime!
+ #define BASE_NUMBER 99488307847707802
+@@ -61,7 +61,7 @@ public:
+ 	prime_cuda_resources_t cudares;
+ 
+   /* implementation multiplexer - must be overriden */
+-  void* getImplementationFor(unsigned int type, accelerated_functions_t *af);
++  void getImplementationFor(unsigned int type, accelerated_functions_t *af);
+ 
+ 	/* meta_info generator for the algorithm - must be overriden */
+ 	void workerMetaInfo(struct meta_info *mi);
+diff --git a/kernel_space_scheduler/src/userspacecontrol/frontend/Makefile b/kernel_space_scheduler/src/userspacecontrol/frontend/Makefile
+index 0ec9dbe..76126b7 100644
+--- a/kernel_space_scheduler/src/userspacecontrol/frontend/Makefile
++++ b/kernel_space_scheduler/src/userspacecontrol/frontend/Makefile
+@@ -6,14 +6,14 @@ BIN               := accelerator-ctl
+ .PHONY : clean
+ 
+ CUDA_INSTALL_PATH := /usr/local/cuda
+-CUDA_SDK_PATH     := /opt/NVIDIA_GPU_Computing_SDK
++CUDA_SDK_PATH     := /usr/local/cuda/sdk
+ NVCC              := $(CUDA_INSTALL_PATH)/bin/nvcc
+ CPP               := g++
+ LIBPATHS          := -L"." -L../library -L"$(CUDA_INSTALL_PATH)/lib" -L"$(CUDA_INSTALL_PATH)/lib64"
+ LIBRARIES         := -lhwaccel_uc -lcudart
+ #LIBRARIES         := -lhwaccel_uc -lm -lrt -lcudart 
+ INCLUDES          := -I/usr/src/linux-headers-2.6.32-24-hwsched/include -I/usr/src/linux-headers-2.6.32-24/include -I/usr/include -I../library -I$(CUDA_INSTALL_PATH)/include
+-CXXFLAGS          := $(INCLUDES) -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check
++CXXFLAGS          := $(INCLUDES) -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check -D CONFIG_SCHED_HET
+ 
+ RM = rm -f
+ CP = cp -f
+diff --git a/kernel_space_scheduler/src/userspacecontrol/library/Makefile b/kernel_space_scheduler/src/userspacecontrol/library/Makefile
+index 4194760..69d6aa7 100644
+--- a/kernel_space_scheduler/src/userspacecontrol/library/Makefile
++++ b/kernel_space_scheduler/src/userspacecontrol/library/Makefile
+@@ -7,8 +7,8 @@ SO               :=libhwaccel_uc.so
+ 
+ CPP  = g++
+ LIBS = 
+-INCLUDES = -I/usr/src/linux-headers-2.6.32-24-hwsched/include -I/usr/src/linux-headers-2.6.32-24/include -I/usr/include
+-CXXFLAGS = $(INCLUDES) -g3 -fPIC -D__DEBUG__ -D_REENTRANT -fbounds-check
++INCLUDES = -I/usr/include -I.#-I/usr/src/linux/include -I/usr/src/include/linux -I/usr/include -I/usr/src/linux/include/linux
++CXXFLAGS = $(INCLUDES) -g3 -fPIC -D__DEBUG__ -D_REENTRANT -fbounds-check -D CONFIG_SCHED_HET
+ RM = rm -f
+ CP = cp -f
+ 
