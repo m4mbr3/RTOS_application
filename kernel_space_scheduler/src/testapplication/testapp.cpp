@@ -13,7 +13,7 @@
 /* Includes */
 #include "testapp.h"
 #include <stdio.h>
-
+#include <unistd.h>
 /* Helper macro to walk all unfinished workers (ghosts) */
 #define foreach_unfinished_ghost(itghost) \
   for (int itghost = 0; itghost < NUM_GHOSTS; itghost++) \
@@ -134,7 +134,7 @@ void Testapp::performWork() {
         workIsDone[i] = true;
       }
     }
-    sleep(GRANULARITY_SECONDS);
+    ::sleep(GRANULARITY_SECONDS);
 
     // If testapp shuts down while there are still workers running, relay the
     // shutdown to them and wait, kill them after a few seconds if nothing
@@ -279,7 +279,7 @@ void * Testapp::announcer(void * parm) {
 
     // sleep if no signal is pending
     if (!Testapp::caughtSIGNAL){
-      if (sleepLeft > 0) sleep(sleepLeft);
+      if (sleepLeft > 0) ::sleep(sleepLeft);
     }
     Testapp::caughtSIGNAL = false;
 

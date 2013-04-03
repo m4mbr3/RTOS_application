@@ -6,14 +6,14 @@ BIN               := accelerator-ctl
 .PHONY : clean
 
 CUDA_INSTALL_PATH := /usr/local/cuda
-CUDA_SDK_PATH     := /opt/NVIDIA_GPU_Computing_SDK
+CUDA_SDK_PATH     := /usr/local/cuda/sdk
 NVCC              := $(CUDA_INSTALL_PATH)/bin/nvcc
 CPP               := g++
 LIBPATHS          := -L"." -L../library -L"$(CUDA_INSTALL_PATH)/lib" -L"$(CUDA_INSTALL_PATH)/lib64"
 LIBRARIES         := -lhwaccel_uc -lcudart
 #LIBRARIES         := -lhwaccel_uc -lm -lrt -lcudart 
 INCLUDES          := -I/usr/src/linux-headers-2.6.32-24-hwsched/include -I/usr/src/linux-headers-2.6.32-24/include -I/usr/include -I../library -I$(CUDA_INSTALL_PATH)/include
-CXXFLAGS          := $(INCLUDES) -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check
+CXXFLAGS          := $(INCLUDES) -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check -D CONFIG_SCHED_HET
 
 RM = rm -f
 CP = cp -f

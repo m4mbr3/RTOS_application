@@ -5,8 +5,8 @@
 
 #define FACTORS_TO_FIND 1000
 #define CANDIDATES_PER_BATCH 1000
-//#define CANDIDATES_PER_BATCH_GPU 100000
-#define CANDIDATES_PER_BATCH_GPU 1000
+#define CANDIDATES_PER_BATCH_GPU 10000000
+//#define CANDIDATES_PER_BATCH_GPU 1000
 
 // 99488307847707803 is prime!
 #define BASE_NUMBER 99488307847707802
@@ -61,7 +61,7 @@ public:
 	prime_cuda_resources_t cudares;
 
   /* implementation multiplexer - must be overriden */
-  void* getImplementationFor(unsigned int type, accelerated_functions_t *af);
+  void getImplementationFor(unsigned int type, accelerated_functions_t *af);
 
 	/* meta_info generator for the algorithm - must be overriden */
 	void workerMetaInfo(struct meta_info *mi);

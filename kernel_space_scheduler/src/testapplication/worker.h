@@ -21,7 +21,7 @@
 #include "testapp.h"
 
 /* include kernel structs */
-#include <linux/sched_hwaccel.h>
+#include "sched_hwaccel.h"
 
 //! prepend a 0 to ids < 10 to create two-digit strings
 #define formatted_stream_id(id) (id < 10 ? "0" : "") << id 
@@ -29,9 +29,9 @@
 class Testapp;
 class Worker;
 
-typedef void* (initFunc)(computing_unit_shortinfo*);                     //!< Function signature for accelerator initialization functions (allocate and copy resources)
-typedef void (mainFunc)(computing_unit_shortinfo*, void*, signed long*); //!< Function signature for computation functions (from one checkpoint to the next)
-typedef void (freeFunc)(computing_unit_shortinfo*, void*);               //!< Function signature for accelerator release functions (release all allocated resources)
+typedef void* (initFunc)(struct computing_unit_shortinfo*);                     //!< Function signature for accelerator initialization functions (allocate and copy resources)
+typedef void (mainFunc)(struct computing_unit_shortinfo*, void*, signed long*); //!< Function signature for computation functions (from one checkpoint to the next)
+typedef void (freeFunc)(struct computing_unit_shortinfo*, void*);               //!< Function signature for accelerator release functions (release all allocated resources)
 
 /**
  * \brief A struct to pass a triplet of function pointers from a subclass to the

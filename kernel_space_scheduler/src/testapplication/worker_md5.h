@@ -79,7 +79,7 @@
  * this worker are apart on a GPU.
  */
 //#define WORDS_PER_BATCH_GPU 1000000000
-#define WORDS_PER_BATCH_GPU 100000000
+#define WORDS_PER_BATCH_GPU 1000000
 
 //! Abbreviation for the number of characters in the currently used alphabet
 #define NUM_OF_CHARS (sizeof(MD5POOL) - 1)
@@ -151,7 +151,7 @@ public:
   md5_resources_t resources;
 
   //! Implementation multiplexer for the class Worker_md5 - implements the virtual Worker::getImplementationFor
-  void* getImplementationFor(unsigned int type, accelerated_functions_t *af);
+  void getImplementationFor(unsigned int type, accelerated_functions_t *af);
 
   //! Meta information generator for the class Worker_md5 - implements the virtual Worker::workerMetaInfo
 	void workerMetaInfo(struct meta_info *mi);

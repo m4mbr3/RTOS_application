@@ -7,8 +7,8 @@ SO               :=libhwaccel_uc.so
 
 CPP  = g++
 LIBS = 
-INCLUDES = -I/usr/src/linux-headers-2.6.32-24-hwsched/include -I/usr/src/linux-headers-2.6.32-24/include -I/usr/include
-CXXFLAGS = $(INCLUDES) -g3 -fPIC -D__DEBUG__ -D_REENTRANT -fbounds-check
+INCLUDES = -I/usr/include -I.#-I/usr/src/linux/include -I/usr/src/include/linux -I/usr/include -I/usr/src/linux/include/linux
+CXXFLAGS = $(INCLUDES) -g3 -fPIC -D__DEBUG__ -D_REENTRANT -fbounds-check -D CONFIG_SCHED_HET
 RM = rm -f
 CP = cp -f
 

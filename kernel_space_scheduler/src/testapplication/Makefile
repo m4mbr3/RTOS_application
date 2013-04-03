@@ -6,16 +6,16 @@ USEDRVAPI         := 1
 .DEFAULT : $(BIN)
 .PHONY : clean
 
-CXX               := g++ 
+CXX               := g++
 NVCC              := nvcc 
 RM                := rm -f
 CP                := cp -f
 
 CUDA_INSTALL_PATH := /usr/local/cuda
-CUDA_SDK_PATH     := /opt/NVIDIA_GPU_Computing_SDK
+CUDA_SDK_PATH     := /usr/local/cuda/sdk
 LIBS              := -L$(CUDA_INSTALL_PATH)/lib -L$(CUDA_INSTALL_PATH)/lib64 -L$(CUDA_SDK_PATH)/lib
 INCLUDES          += -I. -I$(CUDA_INSTALL_PATH)/include -I$(CUDA_SDK_PATH)/common/inc  -I$(CUDA_SDK_PATH)/C/common/inc 
-INCLUDES          += -I/usr/src/linux-headers-2.6.32-24-hwsched/include -I/usr/src/linux-headers-2.6.32-24/include -I/usr/include
+INCLUDES          += -I/usr/src/linux/include -I/usr/include 
 
 LDFLAGS           := -lpthread -lrt -lm
 # static linking, we will statically link against CUDA and CUDART
@@ -24,9 +24,9 @@ ifeq ($(USEDRVAPI),1)
 else
  LDFLAGS += -lcudart 
 endif
-CXXFLAGS          := $(INCLUDES) -pthread -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check -O0
-NVCCFLAGS         := $(INCLUDES) -DUNIX -g --compiler-options -fno-strict-aliasing -m64
-SMVERSIONFLAGS    := -arch sm_20
+CXXFLAGS          := $(INCLUDES) -pthread -g3 -D__DEBUG__ -D_REENTRANT -fbounds-check -O0 -D CONFIG_SCHED_HET
+NVCCFLAGS         := $(INCLUDES) -DUNIX -g --compiler-options -fno-strict-aliasing -m32
+SMVERSIONFLAGS    := -arch sm_12
 
 CPP_SOURCES       := $(wildcard *.cpp)
 CU_SOURCES        := $(wildcard *.cu)
